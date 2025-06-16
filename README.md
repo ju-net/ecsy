@@ -1,5 +1,9 @@
 # ecsy - ECS Command Execute Utility
 
+[![CI](https://github.com/ju-net/ecsy/workflows/CI/badge.svg)](https://github.com/ju-net/ecsy/actions)
+[![Release](https://github.com/ju-net/ecsy/workflows/Release/badge.svg)](https://github.com/ju-net/ecsy/actions)
+[![Go Report Card](https://goreportcard.com/badge/github.com/ju-net/ecsy)](https://goreportcard.com/report/github.com/ju-net/ecsy)
+
 MFA認証対応のECS Command Executeを簡単に実行するためのCLIツールです。
 
 ## 特徴
@@ -18,21 +22,31 @@ MFA認証対応のECS Command Executeを簡単に実行するためのCLIツー�
 
 [Releases](https://github.com/ju-net/ecsy/releases)ページから環境に合ったバイナリをダウンロードしてください。
 
+#### 手動インストール
+
 ```bash
 # macOS (Intel)
-curl -L https://github.com/ju-net/ecsy/releases/latest/download/ecsy-darwin-amd64.gz | gunzip > ecsy
-chmod +x ecsy
+curl -L https://github.com/ju-net/ecsy/releases/latest/download/ecsy_${VERSION}_darwin_amd64.tar.gz | tar xz
 sudo mv ecsy /usr/local/bin/
 
-# macOS (Apple Silicon)
-curl -L https://github.com/ju-net/ecsy/releases/latest/download/ecsy-darwin-arm64.gz | gunzip > ecsy
-chmod +x ecsy
+# macOS (Apple Silicon)  
+curl -L https://github.com/ju-net/ecsy/releases/latest/download/ecsy_${VERSION}_darwin_arm64.tar.gz | tar xz
 sudo mv ecsy /usr/local/bin/
 
 # Linux
-curl -L https://github.com/ju-net/ecsy/releases/latest/download/ecsy-linux-amd64.gz | gunzip > ecsy
-chmod +x ecsy
+curl -L https://github.com/ju-net/ecsy/releases/latest/download/ecsy_${VERSION}_linux_amd64.tar.gz | tar xz
 sudo mv ecsy /usr/local/bin/
+
+# Windows (PowerShell)
+Invoke-WebRequest -Uri "https://github.com/ju-net/ecsy/releases/latest/download/ecsy_${VERSION}_windows_amd64.zip" -OutFile "ecsy.zip"
+Expand-Archive ecsy.zip
+```
+
+#### Homebrewでインストール（将来対応予定）
+
+```bash
+# brew tap ju-net/tap
+# brew install ecsy
 ```
 
 ### ソースからビルド
