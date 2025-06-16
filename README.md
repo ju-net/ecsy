@@ -8,13 +8,20 @@ MFA認証対応のECS Command Executeを簡単に実行するためのCLIツー�
 
 ## 特徴
 
-- AWS プロファイルの選択（MFA認証対応）
-- インタラクティブな選択UI
+- **AWS プロファイルの選択**: `~/.aws/config`から自動検出
+- **MFA認証対応**:
+  - MFAデバイスの自動検出・選択
+  - アクセス拒否時の自動MFA認証
+  - 設定ファイルからのMFAシリアル自動取得
+- **インタラクティブな選択UI**:
   - ECSクラスタ一覧から選択
   - サービス一覧から選択  
-  - 実行中のタスク一覧から選択
-- コマンドライン引数による直接指定も可能
-- クロスプラットフォーム対応（macOS, Linux, Windows）
+  - 実行中のタスクのみ表示・選択
+- **柔軟な実行方式**:
+  - 完全インタラクティブモード
+  - コマンドライン引数による直接指定
+  - 混在モード（一部指定、一部選択）
+- **クロスプラットフォーム対応**: macOS, Linux, Windows
 
 ## インストール
 
@@ -26,20 +33,20 @@ MFA認証対応のECS Command Executeを簡単に実行するためのCLIツー�
 
 ```bash
 # macOS (Intel)
-curl -L https://github.com/ju-net/ecsy/releases/latest/download/ecsy_${VERSION}_darwin_amd64.tar.gz | tar xz
-sudo mv ecsy /usr/local/bin/
+curl -L https://github.com/ju-net/ecsy/releases/latest/download/ecsy-darwin-amd64.gz | gunzip > ecsy
+chmod +x ecsy && sudo mv ecsy /usr/local/bin/
 
 # macOS (Apple Silicon)  
-curl -L https://github.com/ju-net/ecsy/releases/latest/download/ecsy_${VERSION}_darwin_arm64.tar.gz | tar xz
-sudo mv ecsy /usr/local/bin/
+curl -L https://github.com/ju-net/ecsy/releases/latest/download/ecsy-darwin-arm64.gz | gunzip > ecsy
+chmod +x ecsy && sudo mv ecsy /usr/local/bin/
 
 # Linux
-curl -L https://github.com/ju-net/ecsy/releases/latest/download/ecsy_${VERSION}_linux_amd64.tar.gz | tar xz
-sudo mv ecsy /usr/local/bin/
+curl -L https://github.com/ju-net/ecsy/releases/latest/download/ecsy-linux-amd64.gz | gunzip > ecsy
+chmod +x ecsy && sudo mv ecsy /usr/local/bin/
 
 # Windows (PowerShell)
-Invoke-WebRequest -Uri "https://github.com/ju-net/ecsy/releases/latest/download/ecsy_${VERSION}_windows_amd64.zip" -OutFile "ecsy.zip"
-Expand-Archive ecsy.zip
+Invoke-WebRequest -Uri "https://github.com/ju-net/ecsy/releases/latest/download/ecsy-windows-amd64.exe.gz" -OutFile "ecsy.exe.gz"
+gunzip ecsy.exe.gz
 ```
 
 #### Homebrewでインストール（将来対応予定）
@@ -72,33 +79,52 @@ cd ecsy
 
 ## 使い方
 
-### インタラクティブモード
+### 基本的な使い方
 
 ```bash
-# すべてをインタラクティブに選択
+# 完全インタラクティブモード（推奨）
 ecsy
 
-# プロファイルを指定して実行
+# プロファイルのみ指定
 ecsy -p production
+
+# 一部パラメータを指定（残りは選択）
+ecsy -p production -c my-cluster
 ```
 
-### 直接指定モード
+### 完全自動モード
 
 ```bash
-# すべてのパラメータを指定して実行
-ecsy -p production -c my-cluster -s my-service -t arn:aws:ecs:region:account:task/cluster-name/task-id
+# すべてのパラメータを指定
+ecsy -p production -c my-cluster -s my-service -t task-id
 
-# コマンドを指定
+# カスタムコマンドで実行
 ecsy -p production -c my-cluster -s my-service -t task-id --command "/bin/bash"
 ```
 
-### オプション
+### 実行フロー
 
-- `-p, --profile`: AWS プロファイル名
-- `-c, --cluster`: ECS クラスタ名
-- `-s, --service`: ECS サービス名
-- `-t, --task`: ECS タスクID
-- `--command`: 実行するコマンド（デフォルト: /bin/sh）
+1. **プロファイル選択**: AWS設定から自動検出、または手動選択
+2. **MFA認証** (必要時):
+   - MFAデバイスの自動検出・選択
+   - MFAコードの入力
+   - 一時認証情報の取得
+3. **リソース選択**:
+   - ECSクラスタ一覧から選択
+   - サービス一覧から選択
+   - 実行中タスクから選択
+4. **コマンド実行**: AWS ECS Execute Commandで接続
+
+### コマンドオプション
+
+| オプション | 短縮形 | 説明 | デフォルト |
+|-----------|--------|------|-----------|
+| `--profile` | `-p` | AWS プロファイル名 | インタラクティブ選択 |
+| `--cluster` | `-c` | ECS クラスタ名 | インタラクティブ選択 |
+| `--service` | `-s` | ECS サービス名 | インタラクティブ選択 |
+| `--task` | `-t` | ECS タスクID | インタラクティブ選択 |
+| `--command` | | 実行するコマンド | `/bin/sh` |
+| `--help` | `-h` | ヘルプを表示 | |
 
 ## MFA設定
 
