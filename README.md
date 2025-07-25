@@ -17,6 +17,7 @@ MFA認証対応のECS Command Executeを簡単に実行するためのCLIツー�
   - ECSクラスタ一覧から選択
   - サービス一覧から選択  
   - 実行中のタスクのみ表示・選択
+  - 複数コンテナタスクでのコンテナ選択
 - **柔軟な実行方式**:
   - 完全インタラクティブモード
   - コマンドライン引数による直接指定
@@ -47,6 +48,39 @@ chmod +x ecsy && sudo mv ecsy /usr/local/bin/
 # Windows (PowerShell)
 Invoke-WebRequest -Uri "https://github.com/ju-net/ecsy/releases/latest/download/ecsy-windows-amd64.exe.gz" -OutFile "ecsy.exe.gz"
 gunzip ecsy.exe.gz
+```
+
+### アップデート
+
+既存のインストールを更新するには、上記のインストール手順を再度実行してください。
+
+#### 自動アップデート（bash/zsh）
+
+以下のスクリプトを使用して簡単にアップデートできます：
+
+```bash
+# macOS (Apple Silicon)
+curl -L https://github.com/ju-net/ecsy/releases/latest/download/ecsy-darwin-arm64.gz | gunzip > /tmp/ecsy && \
+chmod +x /tmp/ecsy && \
+sudo mv /tmp/ecsy /usr/local/bin/ecsy
+
+# macOS (Intel)
+curl -L https://github.com/ju-net/ecsy/releases/latest/download/ecsy-darwin-amd64.gz | gunzip > /tmp/ecsy && \
+chmod +x /tmp/ecsy && \
+sudo mv /tmp/ecsy /usr/local/bin/ecsy
+
+# Linux
+curl -L https://github.com/ju-net/ecsy/releases/latest/download/ecsy-linux-amd64.gz | gunzip > /tmp/ecsy && \
+chmod +x /tmp/ecsy && \
+sudo mv /tmp/ecsy /usr/local/bin/ecsy
+```
+
+#### バージョン確認
+
+現在のバージョンを確認：
+
+```bash
+ecsy version
 ```
 
 #### Homebrewでインストール（将来対応予定）
@@ -100,6 +134,9 @@ ecsy -p production -c my-cluster -s my-service -t task-id
 
 # カスタムコマンドで実行
 ecsy -p production -c my-cluster -s my-service -t task-id --command "/bin/bash"
+
+# 特定のコンテナを指定して実行
+ecsy -p production -c my-cluster -s my-service -t task-id --container nginx
 ```
 
 ### 実行フロー
@@ -113,6 +150,7 @@ ecsy -p production -c my-cluster -s my-service -t task-id --command "/bin/bash"
    - ECSクラスタ一覧から選択
    - サービス一覧から選択
    - 実行中タスクから選択
+   - コンテナ選択（複数コンテナの場合）
 4. **コマンド実行**: AWS ECS Execute Commandで接続
 
 ### コマンドオプション
@@ -123,6 +161,7 @@ ecsy -p production -c my-cluster -s my-service -t task-id --command "/bin/bash"
 | `--cluster` | `-c` | ECS クラスタ名 | インタラクティブ選択 |
 | `--service` | `-s` | ECS サービス名 | インタラクティブ選択 |
 | `--task` | `-t` | ECS タスクID | インタラクティブ選択 |
+| `--container` | | コンテナ名 | インタラクティブ選択 |
 | `--command` | | 実行するコマンド | `/bin/sh` |
 | `--help` | `-h` | ヘルプを表示 | |
 

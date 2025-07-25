@@ -18,11 +18,12 @@ import (
 )
 
 var (
-	profile string
-	cluster string
-	service string
-	task    string
-	command string
+	profile   string
+	cluster   string
+	service   string
+	task      string
+	command   string
+	container string
 )
 
 func main() {
@@ -37,6 +38,7 @@ func main() {
 	rootCmd.Flags().StringVarP(&service, "service", "s", "", "ECS service name")
 	rootCmd.Flags().StringVarP(&task, "task", "t", "", "ECS task ID")
 	rootCmd.Flags().StringVar(&command, "command", "/bin/sh", "Command to execute")
+	rootCmd.Flags().StringVar(&container, "container", "", "Container name to execute command in")
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -100,7 +102,7 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	// Execute command
-	return executeCommand(ctx, cfg, selectedCluster, selectedTask)
+	return executeCommand(ctx, cfg, selectedCluster, selectedTask, selectedService)
 }
 
 func selectProfile() (string, error) {
@@ -539,7 +541,65 @@ func selectTask(ctx context.Context, client *ecs.Client, clusterName, serviceNam
 	return "", fmt.Errorf("task not found")
 }
 
-func executeCommand(ctx context.Context, cfg aws.Config, clusterName, taskID string) error {
+func selectContainer(ctx context.Context, client *ecs.Client, clusterName, taskID string) (string, error) {
+	// Describe task to get container details
+	describeOutput, err := client.DescribeTasks(ctx, &ecs.DescribeTasksInput{
+		Cluster: aws.String(clusterName),
+		Tasks:   []string{taskID},
+	})
+	if err != nil {
+		return "", err
+	}
+
+	if len(describeOutput.Tasks) == 0 {
+		return "", fmt.Errorf("task not found: %s", taskID)
+	}
+
+	task := describeOutput.Tasks[0]
+	
+	// Get container names from task
+	var containerNames []string
+	for _, container := range task.Containers {
+		if container.Name != nil {
+			containerNames = append(containerNames, *container.Name)
+		}
+	}
+
+	if len(containerNames) == 0 {
+		return "", fmt.Errorf("no containers found in task %s", taskID)
+	}
+
+	// If only one container, use it automatically
+	if len(containerNames) == 1 {
+		return containerNames[0], nil
+	}
+
+	// Multiple containers, let user choose
+	prompt := promptui.Select{
+		Label: "Select Container",
+		Items: containerNames,
+	}
+
+	_, result, err := prompt.Run()
+	if err != nil {
+		return "", err
+	}
+
+	return result, nil
+}
+
+func executeCommand(ctx context.Context, cfg aws.Config, clusterName, taskID, serviceName string) error {
+	// Select container if not specified
+	selectedContainer := container
+	if selectedContainer == "" {
+		ecsClient := ecs.NewFromConfig(cfg)
+		var err error
+		selectedContainer, err = selectContainer(ctx, ecsClient, clusterName, taskID)
+		if err != nil {
+			return fmt.Errorf("failed to select container: %w", err)
+		}
+	}
+
 	// Build aws ecs execute-command
 	args := []string{
 		"ecs", "execute-command",
@@ -547,6 +607,11 @@ func executeCommand(ctx context.Context, cfg aws.Config, clusterName, taskID str
 		"--task", taskID,
 		"--interactive",
 		"--command", command,
+	}
+
+	// Add container if specified
+	if selectedContainer != "" {
+		args = append(args, "--container", selectedContainer)
 	}
 
 	// Add region if available
