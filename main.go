@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -545,7 +546,27 @@ func selectTask(ctx context.Context, client *ecs.Client, clusterName, serviceNam
 	}
 
 	if len(runningTasks) == 0 {
-		return "", fmt.Errorf("no running tasks found for service %s", serviceName)
+		// No running tasks, ask if user wants to start a new one
+		fmt.Printf("No running tasks found for service %s.\n", serviceName)
+		
+		prompt := promptui.Prompt{
+			Label:     "Would you like to start a new task",
+			IsConfirm: true,
+		}
+		
+		_, err := prompt.Run()
+		if err != nil {
+			return "", fmt.Errorf("no running tasks found for service %s", serviceName)
+		}
+		
+		// Start a new task
+		fmt.Println("Starting a new task...")
+		newTaskID, err := startNewTask(ctx, client, clusterName, serviceName)
+		if err != nil {
+			return "", fmt.Errorf("failed to start new task: %w", err)
+		}
+		
+		return newTaskID, nil
 	}
 
 	prompt := promptui.Select{
@@ -860,4 +881,67 @@ func decompressGzip(src, dst string) error {
 	}
 
 	return nil
+}
+
+func startNewTask(ctx context.Context, client *ecs.Client, clusterName, serviceName string) (string, error) {
+	// Get service details to find task definition
+	describeOutput, err := client.DescribeServices(ctx, &ecs.DescribeServicesInput{
+		Cluster:  aws.String(clusterName),
+		Services: []string{serviceName},
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to describe service: %w", err)
+	}
+
+	if len(describeOutput.Services) == 0 {
+		return "", fmt.Errorf("service not found: %s", serviceName)
+	}
+
+	service := describeOutput.Services[0]
+	if service.TaskDefinition == nil {
+		return "", fmt.Errorf("no task definition found for service %s", serviceName)
+	}
+
+	// Run a new task
+	runTaskOutput, err := client.RunTask(ctx, &ecs.RunTaskInput{
+		Cluster:        aws.String(clusterName),
+		TaskDefinition: service.TaskDefinition,
+		LaunchType:     service.LaunchType,
+		NetworkConfiguration: service.NetworkConfiguration,
+		PlatformVersion: service.PlatformVersion,
+		EnableExecuteCommand: aws.Bool(true),
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to run task: %w", err)
+	}
+
+	if len(runTaskOutput.Tasks) == 0 {
+		return "", fmt.Errorf("no task was created")
+	}
+
+	newTask := runTaskOutput.Tasks[0]
+	taskID := ""
+	if newTask.TaskArn != nil {
+		parts := strings.Split(*newTask.TaskArn, "/")
+		if len(parts) > 0 {
+			taskID = parts[len(parts)-1]
+		}
+	}
+
+	fmt.Printf("New task started: %s\n", taskID)
+	fmt.Println("Waiting for task to become running...")
+
+	// Wait for task to be in RUNNING state
+	waiter := ecs.NewTasksRunningWaiter(client)
+	err = waiter.Wait(ctx, &ecs.DescribeTasksInput{
+		Cluster: aws.String(clusterName),
+		Tasks:   []string{taskID},
+	}, 2*time.Minute)
+	
+	if err != nil {
+		return "", fmt.Errorf("task failed to start: %w", err)
+	}
+
+	fmt.Println("Task is now running!")
+	return taskID, nil
 }
