@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -838,6 +839,13 @@ func downloadAndInstall(url string) error {
 		return err
 	}
 
+	// Check if we need sudo (write permission to the directory)
+	execDir := strings.TrimSuffix(execPath, "/"+filepath.Base(execPath))
+	if !isWritable(execDir) {
+		fmt.Println("Update requires administrative privileges...")
+		return installWithSudo(decompressedFile, execPath)
+	}
+
 	// Backup current executable
 	backupPath := execPath + ".backup"
 	if err := os.Rename(execPath, backupPath); err != nil {
@@ -880,6 +888,59 @@ func decompressGzip(src, dst string) error {
 		return err
 	}
 
+	return nil
+}
+
+func isWritable(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	
+	// Check if we can write to the directory
+	testFile := filepath.Join(path, ".ecsy-write-test")
+	file, err := os.Create(testFile)
+	if err != nil {
+		return false
+	}
+	file.Close()
+	os.Remove(testFile)
+	
+	return info.Mode().Perm()&0200 != 0
+}
+
+func installWithSudo(src, dst string) error {
+	// Create backup of current executable
+	backupPath := dst + ".backup"
+	
+	// Use sudo to backup current executable
+	backupCmd := exec.Command("sudo", "cp", dst, backupPath)
+	if err := backupCmd.Run(); err != nil {
+		// Ignore error if file doesn't exist (first install)
+		if !strings.Contains(err.Error(), "No such file") {
+			return fmt.Errorf("failed to backup with sudo: %w", err)
+		}
+	}
+	
+	// Use sudo to move new executable
+	moveCmd := exec.Command("sudo", "mv", src, dst)
+	moveCmd.Stdout = os.Stdout
+	moveCmd.Stderr = os.Stderr
+	if err := moveCmd.Run(); err != nil {
+		// Try to restore backup
+		if backupPath != "" {
+			restoreCmd := exec.Command("sudo", "mv", backupPath, dst)
+			restoreCmd.Run()
+		}
+		return fmt.Errorf("failed to install with sudo: %w", err)
+	}
+	
+	// Remove backup
+	if backupPath != "" {
+		removeCmd := exec.Command("sudo", "rm", "-f", backupPath)
+		removeCmd.Run()
+	}
+	
 	return nil
 }
 
