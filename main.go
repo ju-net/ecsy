@@ -909,7 +909,7 @@ func startNewTask(ctx context.Context, client *ecs.Client, clusterName, serviceN
 		LaunchType:     service.LaunchType,
 		NetworkConfiguration: service.NetworkConfiguration,
 		PlatformVersion: service.PlatformVersion,
-		EnableExecuteCommand: aws.Bool(true),
+		EnableExecuteCommand: true,
 	})
 	if err != nil {
 		return "", fmt.Errorf("failed to run task: %w", err)
