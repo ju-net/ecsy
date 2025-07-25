@@ -2,10 +2,15 @@
 package main
 
 import (
+	"compress/gzip"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -18,6 +23,10 @@ import (
 )
 
 var (
+	// Version information (set by ldflags)
+	version = "dev"
+	
+	// Command flags
 	profile   string
 	cluster   string
 	service   string
@@ -39,6 +48,24 @@ func main() {
 	rootCmd.Flags().StringVarP(&task, "task", "t", "", "ECS task ID")
 	rootCmd.Flags().StringVar(&command, "command", "/bin/sh", "Command to execute")
 	rootCmd.Flags().StringVar(&container, "container", "", "Container name to execute command in")
+
+	// Add version command
+	versionCmd := &cobra.Command{
+		Use:   "version",
+		Short: "Show version information",
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Printf("ecsy version %s\n", version)
+		},
+	}
+	rootCmd.AddCommand(versionCmd)
+
+	// Add update command
+	updateCmd := &cobra.Command{
+		Use:   "update",
+		Short: "Check for updates and install the latest version",
+		RunE:  checkAndUpdate,
+	}
+	rootCmd.AddCommand(updateCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -641,4 +668,196 @@ func executeCommand(ctx context.Context, cfg aws.Config, clusterName, taskID, se
 
 	fmt.Printf("Executing command on task %s...\n", taskID)
 	return cmd.Run()
+}
+
+// GitHub release structure
+type GitHubRelease struct {
+	TagName string `json:"tag_name"`
+	Name    string `json:"name"`
+	Assets  []struct {
+		Name               string `json:"name"`
+		BrowserDownloadURL string `json:"browser_download_url"`
+	} `json:"assets"`
+}
+
+func checkAndUpdate(cmd *cobra.Command, args []string) error {
+	fmt.Println("Checking for updates...")
+
+	// Get latest release from GitHub
+	resp, err := http.Get("https://api.github.com/repos/ju-net/ecsy/releases/latest")
+	if err != nil {
+		return fmt.Errorf("failed to check for updates: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to get latest release: status %d", resp.StatusCode)
+	}
+
+	var release GitHubRelease
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return fmt.Errorf("failed to parse release info: %w", err)
+	}
+
+	latestVersion := strings.TrimPrefix(release.TagName, "v")
+	currentVersion := strings.TrimPrefix(version, "v")
+
+	if currentVersion == "dev" {
+		fmt.Println("Running development version. Latest release is", latestVersion)
+	} else if latestVersion == currentVersion {
+		fmt.Printf("You are already running the latest version (%s)\n", version)
+		return nil
+	} else {
+		fmt.Printf("Current version: %s\n", version)
+		fmt.Printf("Latest version: %s\n", latestVersion)
+	}
+
+	// Ask for confirmation
+	prompt := promptui.Prompt{
+		Label:     fmt.Sprintf("Do you want to update to version %s", latestVersion),
+		IsConfirm: true,
+	}
+
+	_, err = prompt.Run()
+	if err != nil {
+		fmt.Println("Update cancelled")
+		return nil
+	}
+
+	// Determine the asset name based on the current platform
+	assetName := getAssetName()
+	
+	// Find the download URL
+	var downloadURL string
+	for _, asset := range release.Assets {
+		if asset.Name == assetName {
+			downloadURL = asset.BrowserDownloadURL
+			break
+		}
+	}
+
+	if downloadURL == "" {
+		return fmt.Errorf("no release found for platform %s/%s", runtime.GOOS, runtime.GOARCH)
+	}
+
+	// Download and install
+	fmt.Printf("Downloading %s...\n", assetName)
+	if err := downloadAndInstall(downloadURL); err != nil {
+		return fmt.Errorf("failed to install update: %w", err)
+	}
+
+	fmt.Println("Update completed successfully!")
+	fmt.Printf("ecsy has been updated to version %s\n", latestVersion)
+	return nil
+}
+
+func getAssetName() string {
+	osName := runtime.GOOS
+	arch := runtime.GOARCH
+	
+	// Map to release asset names
+	if osName == "darwin" && arch == "amd64" {
+		return "ecsy-darwin-amd64.gz"
+	} else if osName == "darwin" && arch == "arm64" {
+		return "ecsy-darwin-arm64.gz"
+	} else if osName == "linux" && arch == "amd64" {
+		return "ecsy-linux-amd64.gz"
+	} else if osName == "linux" && arch == "arm64" {
+		return "ecsy-linux-arm64.gz"
+	} else if osName == "windows" && arch == "amd64" {
+		return "ecsy-windows-amd64.exe.gz"
+	}
+	
+	return fmt.Sprintf("ecsy-%s-%s.gz", osName, arch)
+}
+
+func downloadAndInstall(url string) error {
+	// Get the executable path
+	execPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("failed to get executable path: %w", err)
+	}
+
+	// Download the file
+	resp, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("download failed: status %d", resp.StatusCode)
+	}
+
+	// Create temporary file
+	tmpFile, err := os.CreateTemp("", "ecsy-update-*.gz")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmpFile.Name())
+	defer tmpFile.Close()
+
+	// Download to temporary file
+	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
+		return err
+	}
+
+	// Close the file to ensure all data is written
+	tmpFile.Close()
+
+	// Decompress the file
+	decompressedFile := strings.TrimSuffix(tmpFile.Name(), ".gz")
+	if err := decompressGzip(tmpFile.Name(), decompressedFile); err != nil {
+		return fmt.Errorf("failed to decompress: %w", err)
+	}
+	defer os.Remove(decompressedFile)
+
+	// Make the new binary executable
+	if err := os.Chmod(decompressedFile, 0755); err != nil {
+		return err
+	}
+
+	// Backup current executable
+	backupPath := execPath + ".backup"
+	if err := os.Rename(execPath, backupPath); err != nil {
+		return fmt.Errorf("failed to backup current executable: %w", err)
+	}
+
+	// Move new executable to the original path
+	if err := os.Rename(decompressedFile, execPath); err != nil {
+		// Try to restore backup
+		os.Rename(backupPath, execPath)
+		return fmt.Errorf("failed to install new executable: %w", err)
+	}
+
+	// Remove backup
+	os.Remove(backupPath)
+
+	return nil
+}
+
+func decompressGzip(src, dst string) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+
+	gzReader, err := gzip.NewReader(srcFile)
+	if err != nil {
+		return err
+	}
+	defer gzReader.Close()
+
+	dstFile, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer dstFile.Close()
+
+	if _, err := io.Copy(dstFile, gzReader); err != nil {
+		return err
+	}
+
+	return nil
 }
